@@ -1,0 +1,794 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Aggregator Terminal</title>
+    <link rel="stylesheet" href="{% static 'css/jquery.terminal.css' %}">
+    <script src="{% static 'js/jquery.js' %}"></script>
+    <script src="{% static 'js/jquery.terminal.js' %}"></script>
+</head>
+<body>
+<div id="terminal"></div>
+
+<script>
+    $(document).ready(function () {
+        function getCookie(name) {
+            var value = "; " + document.cookie;
+            var parts = value.split("; " + name + "=");
+            if (parts.length === 2) return parts.pop().split(";").shift();
+        }
+
+        function popAll() {
+            while (term.level() > 2) {
+                term.pop();
+            }
+        }
+
+        function formatDateTime(date) {
+            const year = date.getFullYear();
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const day = date.getDate().toString().padStart(2, '0');
+            const hour = date.getHours().toString().padStart(2, '0');
+            const minute = date.getMinutes().toString().padStart(2, '0');
+            const second = date.getSeconds().toString().padStart(2, '0');
+            return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+        }
+
+        var user = 'guest';
+        var csrftoken = getCookie('csrftoken');
+        var term = $('#terminal').terminal(function (command, term) {
+            // 留空，可以在需要时添加命令处理逻辑
+        }.bind(this), {
+            greetings: 'Welcome to the Flight Aggregator System',
+            name: 'aggregator_terminal',
+            prompt: user + '@aggregator> ',
+            height: 2000
+        });
+
+        async function handleLoggedIn(user) {
+            term.echo('Logged in as user ' + user.phone_number);
+            term.push(async function (command) {
+                switch (command) {
+                    case 'Find flight':
+                        await findFlights();
+                        break;
+                    case 'My bookings':
+                        await getAllOrders();
+                        showOrders();
+                        break;
+                    case 'Logout':
+                        await logout();
+                        break;
+                    default:
+                        term.echo('Invalid command');
+                }
+            }, {
+                prompt: user.phone_number + '@aggregator> '
+            });
+        }
+
+        async function handleNotLoggedIn() {
+            term.echo('Please choose to login or register');
+            term.push(async function (command) {
+                switch (command.trim()) {
+                    case 'register':
+                        await register();
+                        break;
+                    case 'login':
+                        await login();
+                        break;
+                    default:
+                        term.echo('Invalid command. Enter register or login');
+                }
+            }, {
+                prompt: user + '@aggregator> '
+            });
+        }
+
+        (async function () {
+            try {
+                term.clear();
+                const response = await $.ajax({
+                    url: 'http://127.0.0.1:8000/keep_user_logged_in',
+                    method: 'GET'
+                });
+
+                if (response.status === 'success') {
+                    user = response.user.phone_number;
+                    await handleLoggedIn(response.user);
+                } else {
+                    await handleNotLoggedIn();
+                }
+            } catch (error) {
+                term.echo('Network connection error, please try again later');
+            }
+        })();
+
+        // User authentication function module
+        async function register() {
+            var phone_number, password, passwordAgain;
+            var inputPhone = function () {
+                term.push(function (command) {
+                    phone_number = command.trim();
+                    if (phone_number === '') {
+                        term.echo('Please enter a phone number.');
+                        inputPhone();
+                    } else {
+                        inputPassword();
+                    }
+                }, {
+                    prompt: 'Phone number: '
+                });
+            };
+
+            var inputPassword = function () {
+                term.push(function (command) {
+                    password = command;
+                    if (password === '') {
+                        term.echo('Note that the registered password must be a combination of uppercase and lowercase letters and numbers exceeding 8 digits.');
+                        term.echo('Please enter a password.');
+                        inputPassword();
+                    } else {
+                        inputPasswordAgain();
+                    }
+                }, {
+                    prompt: 'Password: ',
+                    echoChar: '*'
+                });
+            };
+
+            var inputPasswordAgain = function () {
+                term.push(async function (command) {
+                    passwordAgain = command;
+                    if (passwordAgain === '') {
+                        term.echo('Please enter the password again.');
+                        inputPasswordAgain();
+                    } else if (password !== passwordAgain) {
+                        term.echo('Passwords do not match.');
+                        inputPasswordAgain();
+                    } else {
+                        try {
+                            const response = await $.ajax({
+                                url: '/register',
+                                type: 'POST',
+                                headers: {
+                                    'X-CSRFToken': csrftoken
+                                },
+                                data: {
+                                    'phone_number': phone_number,
+                                    'password': password,
+                                },
+                            });
+                            if (response.code === '200') {
+                                user = phone_number;
+                                term.echo('Registered and logged in successfully');
+                                term.set_prompt(user + '@aggregator> ')
+                                location.reload();
+                            } else {
+                                term.echo(response.msg);
+                                popAll();
+                            }
+                        } catch (error) {
+                            term.echo('Error: ' + error);
+                            popAll();
+                        }
+                    }
+                }, {
+                    prompt: 'Password again: ',
+                    echoChar: '*'
+                });
+            };
+
+            inputPhone();
+        }
+
+        async function login() {
+            var phone_number, password;
+            var inputPhone = function () {
+                term.push(function (command) {
+                    phone_number = command.trim();
+                    if (phone_number === '') {
+                        term.echo('Please enter a phone number.');
+                        inputPhone();
+                    } else {
+                        inputPassword();
+                    }
+                }, {
+                    prompt: 'Phone number: '
+                });
+            };
+
+            var inputPassword = function () {
+                term.push(async function (password) {
+                    if (password === '') {
+                        term.echo('Please enter a password.');
+                        inputPassword();
+                    } else {
+                        try {
+                            const response = await $.ajax({
+                                url: '/login',
+                                type: 'POST',
+                                headers: {
+                                    'X-CSRFToken': csrftoken
+                                },
+                                data: {
+                                    'phone_number': phone_number,
+                                    'password': password,
+                                },
+                            });
+                            if (response.code === '200') {
+                                user = phone_number
+                                term.echo('Logged in successfully');
+                                term.set_prompt(user + '@aggregator> ')
+                                location.reload();
+                            } else {
+                                term.echo(response.msg);
+                                popAll();
+                            }
+                        } catch (error) {
+                            term.echo('Error: ' + error);
+                            popAll();
+                        }
+
+                    }
+                }, {
+                    prompt: 'Password: ',
+                    echoChar: true,
+                    name: 'password'
+                });
+            };
+            inputPhone();
+        }
+
+        async function logout() {
+            try {
+                const response = await $.ajax({
+                    url: '/logout',
+                    headers: {
+                        'X-CSRFToken': csrftoken
+                    },
+                    method: 'POST',
+                });
+                term.echo(response.msg);
+                location.reload();
+            } catch (error) {
+                term.error('Error occurred while logging out.');
+                popAll();
+            }
+        }
+
+        //User order function module
+        var orderList = []
+
+        async function createOrder(order_number, airline, key, status) {
+            const response = await $.ajax({
+                url: '/orders',
+                type: 'POST',
+                headers: {
+                    'X-CSRFToken': csrftoken
+                },
+                data: {
+                    order_number: order_number,
+                    user_phone: user,
+                    airline: airline,
+                    key: key,
+                    status: status
+                }
+            });
+            if (response.code === '200') {
+                term.echo(`Order ${order_number} created successfully`);
+            } else {
+                term.error(`Failed to create order ${order_number}`);
+                popAll();
+            }
+        }
+
+        async function cancelOrder(order_number) {
+            const response = await $.ajax({
+                url: `/cancelbooking`,
+                type: 'POST',
+                data: {
+                    order_number: order_number
+                },
+                headers: {
+                    'X-CSRFToken': csrftoken
+                },
+            });
+            if (response.code === '200') {
+                term.echo(`Order ${order_number} canceled successfully`);
+                popAll();
+            } else {
+                term.error(`Failed to cancel order ${order_number}`);
+                popAll();
+            }
+        }
+
+        async function getAllOrders() {
+            const response = await $.ajax({
+                url: '/orders',
+                type: 'GET',
+                headers: {
+                    'X-CSRFToken': csrftoken
+                },
+            });
+            if (response.code === '200') {
+                const orders = response.data;
+                if (orders.length === 0) {
+                    term.echo('No orders found');
+                } else {
+                    orderList = orders;
+                }
+            } else {
+                term.error('Failed to get orders');
+                popAll();
+            }
+        }
+
+        async function updateOrder(order_number, key, status) {
+            const response = await $.ajax({
+                url: `/orders/${order_number}`,
+                type: 'PUT',
+                data: {
+                    key: key,
+                    status: status
+                },
+                headers: {
+                    'X-CSRFToken': csrftoken
+                },
+            });
+            if (response.code === '200') {
+                term.echo(`Order ${order_number} updated successfully`);
+            } else {
+                term.error(`Failed to update order ${order_number}`);
+                popAll();
+            }
+        }
+
+        async function getBookingStatus(order_number) {
+            try {
+                const response = await $.ajax({
+                    url: '/bookingstatus',
+                    type: 'GET',
+                    headers: {
+                        'X-CSRFToken': csrftoken
+                    },
+                    data: {
+                        order_number: order_number
+                    }
+                });
+                if (response.code === '200') {
+                    const data = response.data;
+                    var statusStr = status_mapping[data.payment_status];
+                    status_mapping = {0: 'Unpaid', 1: 'Paid'}
+                    term.echo(`Order Id: ${data.order_id}\r`);
+                    term.echo(`Payment Status: ${statusStr}\r`);
+                    term.echo(`Flight Id: ${data.flight_id}\r`);
+                    term.echo(`Departure Date: ${data.departure_date}\r`);
+                    term.echo(`Arrive Date: ${data.arrive_date}\r`);
+                    term.echo(`Departure Time: ${data.departure_time}\r`);
+                    term.echo(`Arrive Time: ${data.arrive_time}\r`);
+                    term.echo(`Departure: ${data.departure}\r`);
+                    term.echo(`Arrival: ${data.arrival}\r`);
+                    term.echo(`Ticket Time: ${data.ticket_time}\r\n`);
+
+                    if (data.payment_status === 0) {
+                        // Unpaid
+                        term.echo("Enter 'pay' to pay the order or 'cancel' to cancel the order: ");
+                        term.push(async function (command) {
+                            if (command === "pay") {
+                                paymentProcess(data.order_id)
+                            } else if (command === "cancel") {
+                                term.echo("Are you sure you want to cancel the order?");
+                                term.push(async function (command) {
+                                    if (command === "yes") {
+                                        await cancelOrder(data.order_id)
+                                    } else if (command === "no") {
+                                        popAll();
+                                    } else {
+                                        term.echo("Invalid Command!");
+                                    }
+                                }, {prompt: "[yes/no] "});
+                            } else {
+                                term.echo("Invalid Command!");
+                            }
+                        }, {prompt: "Enter: "});
+                    } else {
+                        // Paid
+                        if (command === "cancel") {
+                            term.echo("Are you sure you want to cancel the order?");
+                            term.push(async function (command) {
+                                if (command === "yes") {
+                                    await cancelOrder(data.order_id)
+                                } else if (command === "no") {
+                                    popAll();
+                                } else {
+                                    term.echo("Invalid Command!");
+                                }
+                            }, {prompt: "[yes/no] "});
+                        }
+                    }
+
+                } else {
+                    term.error(`Failed to get booking status for order ${order_number}`);
+                    popAll();
+                }
+            } catch (error) {
+                term.error(`Failed to get booking status for order ${order_number}: ${error}`);
+                popAll();
+            }
+        }
+
+        function showOrders() {
+            var table = "Your Order List\n";
+            table += "No.   Order No.    Airline     Status\n";
+            table += "-".repeat(100) + "\n";
+            status_mapping = {0: 'Unpaid', 1: 'Paid'}
+
+            // Add each flight to the table
+            for (var i = 0; i < orderList.length; i++) {
+                var order = orderList[i];
+                var statusStr = status_mapping[order.status];
+
+                // Generate the row for the flight
+                var row = (i + 1) + "    ";
+                row += order.order_number.padEnd(14);
+                row += order.airline.padEnd(14);
+                row += statusStr + "\n";
+                // Add the row to the table
+                table += row;
+            }
+
+            term.echo(table);
+
+            term.push(async function (command) {
+                var selection = parseInt(command);
+                const selectedOrder = orderList[selection - 1];
+                await getBookingStatus(selectedOrder.order_number);
+
+            }, {prompt: "Select order: "});
+        }
+
+
+        // Flight search and booking function module
+        var flightList = [];
+
+        async function findFlights() {
+            var departureDate, departure, arrival;
+
+            var inputdepartureDate = function () {
+                term.push(function (command) {
+                    departureDate = command.trim();
+                    if (departureDate === "") {
+                        term.echo("Please enter departureDate.");
+                        inputdepartureDate();
+                    } else {
+                        inputDeparture();
+                    }
+                }, {
+                    prompt: "Departure Date: "
+                });
+            };
+
+            var inputDeparture = function () {
+                term.push(function (command) {
+                    departure = command;
+                    if (departure === "") {
+                        term.echo("Please enter departure.");
+                        inputDeparture();
+                    } else {
+                        inputArrival();
+                    }
+                }, {
+                    prompt: "Departure: ",
+                });
+            };
+
+            var inputArrival = function () {
+                term.push(async function (command) {
+                    arrival = command;
+                    if (arrival === "") {
+                        term.echo("Please enter arrival.");
+                        inputArrival();
+                    } else {
+                        try {
+                            var response = await $.ajax({
+                                type: 'GET',
+                                url: 'http://127.0.0.1:8000/findflight',
+                                data: {
+                                    departure_date: departureDate,
+                                    departure: departure,
+                                    arrival: arrival
+                                },
+                                beforeSend: function () {
+                                    term.disable();
+                                    term.echo('Searching for flights, please wait...');
+                                }
+                            });
+                            if (response.code === '200') {
+                                var flightList = response.data;
+                                // Display the flight information
+                                showFlights(flightList);
+                                term.enable();
+                            } else {
+                                var errorMsg = `Error: ${response.msg}`;
+                                term.error(errorMsg);
+                                popAll();
+                            }
+                        } catch (error) {
+                            term.echo('Error: ' + error);
+                            popAll();
+                        }
+                    }
+                }, {
+                    prompt: "Arrival: ",
+                });
+            };
+
+            inputdepartureDate();
+        }
+
+        function showFlights(flightList) {
+            // Set up the table headers
+            var table = "Search Results:\n";
+            table += "No.   Flight No. Airline      Departure     Arrival    Date      Time    Price\n";
+            table += "-".repeat(100) + "\n";
+
+            // Add each flight to the table
+            for (var i = 0; i < flightList.length; i++) {
+                var flight = flightList[i];
+
+                // Generate the row for the flight
+                var row = (i + 1) + "    ";
+                row += flight.flight_num.padEnd(10);
+                row += flight.airline.padEnd(15);
+                row += flight.departure.padEnd(13);
+                row += flight.arrival.padEnd(10);
+                row += flight.departure_date.padEnd(13);
+                row += flight.departure_time.padEnd(10);
+                row += flight.flight_price + "RMB\n";
+
+                // Add the row to the table
+                table += row;
+            }
+
+            term.echo(table);
+
+            term.push(function (command) {
+                var selection = parseInt(command);
+                getFlightInformation(flightList, selection);
+            }, {prompt: "Select flight: "});
+        }
+
+        async function getFlightInformation(flightList, selection) {
+            const selectedFlight = flightList[selection - 1];
+
+            term.echo(`Flight information for ${selectedFlight.flight_num}:`);
+            term.echo(`Airline: ${selectedFlight.airline}`);
+            term.echo(`Departure date: ${selectedFlight.departure_date}`);
+            term.echo(`Departure time: ${selectedFlight.departure_time}`);
+            term.echo(`Arrival date: ${selectedFlight.arrive_date}`);
+            term.echo(`Arrival time: ${selectedFlight.arrive_time}`);
+            term.echo(`Price: ${selectedFlight.flight_price}`);
+            term.echo(`Available seats: ${selectedFlight.seat_number}`);
+            term.echo(`Departure: ${selectedFlight.departure}`);
+            term.echo(`Arrival: ${selectedFlight.arrival}`);
+
+            term.echo("");
+            term.echo(`Do you want to book flight ${selectedFlight.flight_num}?`);
+            term.push(function (command) {
+                if (command.trim().toLowerCase() === "yes") {
+                    term.echo(`Enter passenger names separated by ','`);
+                    term.push(async function (command) {
+                        if (command.trim() === "") {
+                            term.echo("Error: Passenger cannot be empty.");
+                        } else {
+                            var passengerNames = command.split(',');
+                            if (passengerNames.length === 0) {
+                                term.echo("Error: Passenger cannot be empty.");
+                            } else {
+                                var flight = flightList[selection - 1];
+                                var orderId = Math.floor(1000000000 + Math.random() * 9000000000);
+                                const now = new Date();
+                                const ticketTime = formatDateTime(now);
+                                await bookFlight(flight.flight_num, passengerNames.join(','), orderId, flight.flight_price, ticketTime, "0");
+                                await createOrder(orderId, flight.airline, '', "0")
+                                paymentProcess(orderId);
+                            }
+                        }
+                    }, {prompt: "Enter: "});
+                } else {
+                    term.echo("Booking canceled.");
+                    popAll();
+                }
+            }, {prompt: "[yes/no] "});
+        }
+
+        async function bookFlight(flightNum, passengerNames, orderId, orderPrice, ticketTime, paymentStatus) {
+            try {
+                var response = await $.ajax({
+                    type: 'POST',
+                    url: '/bookflight',
+                    headers: {
+                        'X-CSRFToken': csrftoken
+                    },
+                    data: {
+                        'flight_num': flightNum,
+                        'passenger_name': passengerNames,
+                        'order_id': orderId,
+                        'order_price': orderPrice,
+                        'ticket_time': ticketTime,
+                        'payment_status': paymentStatus,
+                    }
+                });
+                if (response.code === '200') {
+                    if (response.code === 200) {
+                        term.echo(response.msg);
+                    } else {
+                        term.echo(response.msg);
+                    }
+                } else {
+                    var errorMsg = `Error: ${response.msg}`;
+                    term.error(errorMsg);
+                    popAll();
+                }
+            } catch (error) {
+                term.echo('Error: ' + error);
+                popAll();
+            }
+        }
+
+        // Payment function module
+        var paymentPlatforms = [];
+
+        async function getPaymentPlatforms() {
+            try {
+                var response = await $.ajax({
+                    url: '/paymentmethod',
+                    type: 'GET',
+                    dataType: "json",
+                    headers: {
+                        'X-CSRFToken': csrftoken
+                    },
+                });
+                if (response.code === '200') {
+                    paymentPlatforms = response.payment_platform;
+                } else {
+                    var errorMsg = `Error: ${response.msg}`;
+                    term.error(errorMsg);
+                    popAll();
+                }
+            } catch (error) {
+                term.echo('Error: ' + error);
+                while (term.level() > 1) {
+                    term.pop();
+                }
+            }
+
+        }
+
+        function paymentProcess(orderId) {
+            term.echo("");
+            term.echo("Do you want to pay for this booking?")
+            term.push(async function (command) {
+                if (command.trim().toLowerCase() === "yes") {
+                    await getPaymentPlatforms();
+                    term.echo("Please select a payment platform from the following list: " + paymentPlatforms);
+                    term.push(async function (command) {
+                        var paymentPlatform = command.trim();
+                        if (paymentPlatforms.includes(paymentPlatform)) {
+                            var response = await payForBooking(orderId, paymentPlatform);
+                        } else {
+                            term.error(`Error: Invalid payment platform '${paymentPlatform}'.`);
+                        }
+                    }, {prompt: "Enter: "});
+                } else {
+                    term.echo("Payment canceled.");
+                    popAll();
+                }
+            }, {prompt: "[yes/no] "});
+        }
+
+        function signUp() {
+            // Generate a random 16-digit number for the userIDNumber field
+            var user_id_number = Math.floor(1000000000000000 + Math.random() * 9000000000000000);
+
+            // Prompt the user to enter their personal information
+            term.push(function (command) {
+                var user_name = command;
+                term.push(function (command) {
+                    var user_phone = command;
+                    term.push(function (command) {
+                        var user_email = command;
+                        term.push(function (command) {
+                            var user_password = command;
+
+                            // Call the /signup API endpoint to create a new user account
+                            $.ajax({
+                                url: '/signup',
+                                type: 'POST',
+                                data: {
+                                    userName: user_name,
+                                    userIDNumber: user_id_number,
+                                    userPhone: user_phone,
+                                    userEmail: user_email,
+                                    userPassword: user_password
+                                },
+                                success: function (response) {
+                                    // Display the user's account information
+                                    var user_id = response.data.userId;
+                                    var user_balance = response.data.userBalance;
+                                    var user_name = response.data.username;
+                                    term.echo('Welcome, ' + user_name + '! Your balance is ' + user_balance + '.');
+                                },
+                                error: function (xhr, status, error) {
+                                    term.echo('Failed to create user account.');
+                                }
+                            });
+                        }, {prompt: 'Enter a password: ', echo: false});
+                    }, {prompt: 'Enter an email address: '});
+                }, {prompt: 'Enter a phone number: '});
+            }, {prompt: 'Enter a name: '});
+        }
+
+        function signIn() {
+            term.push(function (command) {
+                var user_phone = command;
+                term.push(function (command) {
+                    var user_password = command;
+
+                    // Call the /signin API endpoint to authenticate the user
+                    $.ajax({
+                        url: '/signin',
+                        type: 'POST',
+                        data: {
+                            userPhone: user_phone,
+                            userPassword: user_password
+                        },
+                        success: function (response) {
+                            // Save the user's token to the session storage
+                            sessionStorage.setItem('token', response.data.token);
+
+                            // Display a welcome message
+                            var user_id = response.data.userId;
+                            var username = response.data.userPhone;
+                            term.echo('Welcome back, user ' + user_phone + '!');
+                        },
+                        error: function (xhr, status, error) {
+                            term.echo('Invalid phone number or password.');
+                        }
+                    });
+                }, {prompt: 'Enter your password: ', echo: false});
+            }, {prompt: 'Enter your phone number: '});
+        }
+
+        async function payForBooking(order_id, payment_platform) {
+            try {
+                const response = await $.ajax({
+                    url: '/payforbooking',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    headers: {
+                        'X-CSRFToken': csrftoken
+                    },
+                    data: JSON.stringify({
+                        payment_platform: payment_platform,
+                        order_id: order_id
+                    })
+                });
+                if (response.code === '200') {
+                    const {AID, PID, order_price} = response.data;
+                    term.echo("Payment " + PID + " has been paid");
+                    popAll();
+                } else {
+                    term.error(`PayForBooking error: ${response.msg}`);
+                    popAll();
+                }
+            } catch (error) {
+                term.error('Failed to call PayForBooking endpoint');
+                popAll();
+            }
+        }
+    });
+</script>
+</body>
+</html>

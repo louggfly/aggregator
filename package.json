@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@chatui/core": "^2.4.2",
+    "jquery.terminal": "^2.35.3",
+    "xterm": "^5.1.0",
+    "xterm-addon-fit": "^0.7.0"
+  }
+}
