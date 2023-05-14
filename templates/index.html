@@ -48,6 +48,7 @@
 
         async function handleLoggedIn(user) {
             term.echo('Logged in as user ' + user.phone_number);
+            term.echo('User ' + user.phone_number + ", welcome back to the flight booking system! Please enter Find flight for ticket query, or enter My bookings for your order management.")
             term.push(async function (command) {
                 switch (command) {
                     case 'Find flight':
@@ -92,7 +93,6 @@
                     url: 'http://127.0.0.1:8000/keep_user_logged_in',
                     method: 'GET'
                 });
-
                 if (response.status === 'success') {
                     user = response.user.phone_number;
                     await handleLoggedIn(response.user);
