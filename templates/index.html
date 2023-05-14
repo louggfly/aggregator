@@ -3,6 +3,7 @@
 <html>
 <head>
     <title>Aggregator Terminal</title>
+    <link rel="icon" href="{% static 'icons/logo.png' %}">
     <link rel="stylesheet" href="{% static 'css/jquery.terminal.css' %}">
     <link rel="stylesheet" href="{% static 'css/base.css' %}">
     <script src="{% static 'js/jquery.js' %}"></script>
@@ -90,7 +91,7 @@
             try {
                 term.clear();
                 const response = await $.ajax({
-                    url: 'http://127.0.0.1:8000/keep_user_logged_in',
+                    url: '/keep_user_logged_in',
                     method: 'GET'
                 });
                 if (response.status === 'success') {
