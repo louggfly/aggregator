@@ -4,6 +4,7 @@
 <head>
     <title>Aggregator Terminal</title>
     <link rel="stylesheet" href="{% static 'css/jquery.terminal.css' %}">
+    <link rel="stylesheet" href="{% static 'css/base.css' %}">
     <script src="{% static 'js/jquery.js' %}"></script>
     <script src="{% static 'js/jquery.terminal.js' %}"></script>
 </head>
@@ -54,7 +55,6 @@
                         break;
                     case 'My bookings':
                         await getAllOrders();
-                        showOrders();
                         break;
                     case 'Logout':
                         await logout();
@@ -317,6 +317,7 @@
                     term.echo('No orders found');
                 } else {
                     orderList = orders;
+                    showOrders();
                 }
             } else {
                 term.error('Failed to get orders');
@@ -344,7 +345,7 @@
             }
         }
 
-        async function getBookingStatus(order_number) {
+        async function getBookingStatus(order_number, airline) {
             try {
                 const response = await $.ajax({
                     url: '/bookingstatus',
@@ -358,9 +359,10 @@
                 });
                 if (response.code === '200') {
                     const data = response.data;
-                    var statusStr = status_mapping[data.payment_status];
                     status_mapping = {0: 'Unpaid', 1: 'Paid'}
+                    var statusStr = status_mapping[data.payment_status];
                     term.echo(`Order Id: ${data.order_id}\r`);
+                    term.echo(`Airline: ${airline}\r\n`);
                     term.echo(`Payment Status: ${statusStr}\r`);
                     term.echo(`Flight Id: ${data.flight_id}\r`);
                     term.echo(`Departure Date: ${data.departure_date}\r`);
@@ -376,7 +378,7 @@
                         term.echo("Enter 'pay' to pay the order or 'cancel' to cancel the order: ");
                         term.push(async function (command) {
                             if (command === "pay") {
-                                paymentProcess(data.order_id)
+                                paymentProcess(data.order_id, airline)
                             } else if (command === "cancel") {
                                 term.echo("Are you sure you want to cancel the order?");
                                 term.push(async function (command) {
@@ -394,7 +396,9 @@
                         }, {prompt: "Enter: "});
                     } else {
                         // Paid
-                        if (command === "cancel") {
+                        term.echo("Enter 'cancel' to cancel the order: ");
+                        term.push(async function (command) {
+                            if (command === "cancel") {
                             term.echo("Are you sure you want to cancel the order?");
                             term.push(async function (command) {
                                 if (command === "yes") {
@@ -406,10 +410,11 @@
                                 }
                             }, {prompt: "[yes/no] "});
                         }
+                        }, {prompt: "Enter: "});
                     }
 
                 } else {
-                    term.error(`Failed to get booking status for order ${order_number}`);
+                    term.error(response.msg + ` for order ${order_number}`);
                     popAll();
                 }
             } catch (error) {
@@ -443,11 +448,10 @@
             term.push(async function (command) {
                 var selection = parseInt(command);
                 const selectedOrder = orderList[selection - 1];
-                await getBookingStatus(selectedOrder.order_number);
+                await getBookingStatus(selectedOrder.order_number, selectedOrder.airline);
 
             }, {prompt: "Select order: "});
         }
-
 
         // Flight search and booking function module
         var flightList = [];
@@ -530,17 +534,17 @@
         function showFlights(flightList) {
             // Set up the table headers
             var table = "Search Results:\n";
-            table += "No.   Flight No. Airline      Departure     Arrival    Date      Time    Price\n";
+            table += "No.   Flight No.   Airline      Departure     Arrival    Date      Time    Price\n";
             table += "-".repeat(100) + "\n";
 
             // Add each flight to the table
             for (var i = 0; i < flightList.length; i++) {
                 var flight = flightList[i];
-
+                var flightNumPad = flight.flight_num.length <= 6 ? " ".repeat(5) : " ".repeat(2);
                 // Generate the row for the flight
                 var row = (i + 1) + "    ";
-                row += flight.flight_num.padEnd(10);
-                row += flight.airline.padEnd(15);
+                row += flight.flight_num + flightNumPad;
+                row += flight.airline.padEnd(14);
                 row += flight.departure.padEnd(13);
                 row += flight.arrival.padEnd(10);
                 row += flight.departure_date.padEnd(13);
@@ -590,9 +594,7 @@
                                 var orderId = Math.floor(1000000000 + Math.random() * 9000000000);
                                 const now = new Date();
                                 const ticketTime = formatDateTime(now);
-                                await bookFlight(flight.flight_num, passengerNames.join(','), orderId, flight.flight_price, ticketTime, "0");
-                                await createOrder(orderId, flight.airline, '', "0")
-                                paymentProcess(orderId);
+                                await bookFlight(flight.flight_num, passengerNames.join(','), orderId, flight.flight_price, ticketTime, "0", flight.airline);
                             }
                         }
                     }, {prompt: "Enter: "});
@@ -603,7 +605,7 @@
             }, {prompt: "[yes/no] "});
         }
 
-        async function bookFlight(flightNum, passengerNames, orderId, orderPrice, ticketTime, paymentStatus) {
+        async function bookFlight(flightNum, passengerNames, orderId, orderPrice, ticketTime, paymentStatus, airline) {
             try {
                 var response = await $.ajax({
                     type: 'POST',
@@ -618,14 +620,13 @@
                         'order_price': orderPrice,
                         'ticket_time': ticketTime,
                         'payment_status': paymentStatus,
+                        'airline': airline,
                     }
                 });
                 if (response.code === '200') {
-                    if (response.code === 200) {
-                        term.echo(response.msg);
-                    } else {
-                        term.echo(response.msg);
-                    }
+                    term.echo(response.msg);
+                    await createOrder(orderId, airline, '', "0");
+                    paymentProcess(orderId, airline);
                 } else {
                     var errorMsg = `Error: ${response.msg}`;
                     term.error(errorMsg);
@@ -640,12 +641,14 @@
         // Payment function module
         var paymentPlatforms = [];
 
-        async function getPaymentPlatforms() {
+        async function getPaymentPlatforms(airline) {
             try {
                 var response = await $.ajax({
                     url: '/paymentmethod',
-                    type: 'GET',
-                    dataType: "json",
+                    type: 'POST',
+                    data: {
+                        airline: airline,
+                    },
                     headers: {
                         'X-CSRFToken': csrftoken
                     },
@@ -666,17 +669,17 @@
 
         }
 
-        function paymentProcess(orderId) {
+        function paymentProcess(orderId, airline) {
             term.echo("");
             term.echo("Do you want to pay for this booking?")
             term.push(async function (command) {
                 if (command.trim().toLowerCase() === "yes") {
-                    await getPaymentPlatforms();
+                    await getPaymentPlatforms(airline);
                     term.echo("Please select a payment platform from the following list: " + paymentPlatforms);
                     term.push(async function (command) {
                         var paymentPlatform = command.trim();
                         if (paymentPlatforms.includes(paymentPlatform)) {
-                            var response = await payForBooking(orderId, paymentPlatform);
+                            var response = await payForBooking(orderId, paymentPlatform, airline);
                         } else {
                             term.error(`Error: Invalid payment platform '${paymentPlatform}'.`);
                         }
@@ -688,80 +691,7 @@
             }, {prompt: "[yes/no] "});
         }
 
-        function signUp() {
-            // Generate a random 16-digit number for the userIDNumber field
-            var user_id_number = Math.floor(1000000000000000 + Math.random() * 9000000000000000);
-
-            // Prompt the user to enter their personal information
-            term.push(function (command) {
-                var user_name = command;
-                term.push(function (command) {
-                    var user_phone = command;
-                    term.push(function (command) {
-                        var user_email = command;
-                        term.push(function (command) {
-                            var user_password = command;
-
-                            // Call the /signup API endpoint to create a new user account
-                            $.ajax({
-                                url: '/signup',
-                                type: 'POST',
-                                data: {
-                                    userName: user_name,
-                                    userIDNumber: user_id_number,
-                                    userPhone: user_phone,
-                                    userEmail: user_email,
-                                    userPassword: user_password
-                                },
-                                success: function (response) {
-                                    // Display the user's account information
-                                    var user_id = response.data.userId;
-                                    var user_balance = response.data.userBalance;
-                                    var user_name = response.data.username;
-                                    term.echo('Welcome, ' + user_name + '! Your balance is ' + user_balance + '.');
-                                },
-                                error: function (xhr, status, error) {
-                                    term.echo('Failed to create user account.');
-                                }
-                            });
-                        }, {prompt: 'Enter a password: ', echo: false});
-                    }, {prompt: 'Enter an email address: '});
-                }, {prompt: 'Enter a phone number: '});
-            }, {prompt: 'Enter a name: '});
-        }
-
-        function signIn() {
-            term.push(function (command) {
-                var user_phone = command;
-                term.push(function (command) {
-                    var user_password = command;
-
-                    // Call the /signin API endpoint to authenticate the user
-                    $.ajax({
-                        url: '/signin',
-                        type: 'POST',
-                        data: {
-                            userPhone: user_phone,
-                            userPassword: user_password
-                        },
-                        success: function (response) {
-                            // Save the user's token to the session storage
-                            sessionStorage.setItem('token', response.data.token);
-
-                            // Display a welcome message
-                            var user_id = response.data.userId;
-                            var username = response.data.userPhone;
-                            term.echo('Welcome back, user ' + user_phone + '!');
-                        },
-                        error: function (xhr, status, error) {
-                            term.echo('Invalid phone number or password.');
-                        }
-                    });
-                }, {prompt: 'Enter your password: ', echo: false});
-            }, {prompt: 'Enter your phone number: '});
-        }
-
-        async function payForBooking(order_id, payment_platform) {
+        async function payForBooking(order_id, payment_platform, airline) {
             try {
                 const response = await $.ajax({
                     url: '/payforbooking',
@@ -772,7 +702,8 @@
                     },
                     data: JSON.stringify({
                         payment_platform: payment_platform,
-                        order_id: order_id
+                        order_id: order_id,
+                        airline: airline
                     })
                 });
                 if (response.code === '200') {

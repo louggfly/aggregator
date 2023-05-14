@@ -154,37 +154,87 @@ class BookingStatus(APIView):
     @staticmethod
     def get(request):
         order_number = request.GET.get('order_number')
-        url = 'http://sc19h2l.pythonanywhere.com/bookingstatus/'
+        url1 = 'http://sc19h2l.pythonanywhere.com/bookingstatus/'
+        url2 = 'https://sc19j2g.pythonanywhere.com/bookingstatus'
+        url3 = 'https://sc19yz3.pythonanywhere.com/bookingstatus/'
         params = {'order_id': order_number}
-        response = requests.get(url, params=params)
-        result = response.json()
+        response1 = requests.get(url1, params=params)
+        result1 = response1.json()
+        response2 = requests.get(url2, params=params)
+        result2 = response2.json()
+        response3 = requests.get(url3, params=params)
+        result3 = response3.json()
 
-        if result['code'] == "200":
-            data = result['data'][0]
+        print(result1)
+        print(result2)
+        print(result3)
+        if result1['code'] == "200":
+            data = result1['data'][0]
             return Response({
                 'code': '200',
                 'msg': 'successful',
                 'data': data})
-        elif result['code'] == "503":
-            return Response({'code': '400', 'msg': result['msg'], 'error': result['msg']})
+        elif result2['code'] == "200":
+            data = result2['data'][0]
+            return Response({
+                'code': '200',
+                'msg': 'successful',
+                'data': data})
+        elif result3['code'] == "200":
+            if len(result3['data']) == 0:
+                return Response({'code': '400', 'msg': 'Sorry! The order does not exist'})
+            else:
+                data1 = result3['data'][0]
+                data = {
+                    'order_id': data1['order_id'],
+                    'payment_status': data1['payment_status'],
+                    'flight_id': data1['flight_num'],
+                    'departure_date': data1['departure_date'],
+                    'arrive_date': data1['arrive_date'],
+                    'departure_time': data1['departure_time'],
+                    'arrive_time': data1['arrive_time'],
+                    'departure': data1['departure'],
+                    'arrival': data1['arrival'],
+                    'ticket_time': data1['ticket_time'],
+                }
+                return Response({
+                    'code': '200',
+                    'msg': 'successful',
+                    'data': data})
         else:
-            error_msg = f'Error: {response.status_code} {response.reason}'
-            return Response({'code': '400', 'msg': 'fail', 'error': error_msg})
+            return Response({'code': '400', 'msg': 'fail', 'error': "Sorry! The order does not exist"})
 
 
 class CancelBooking(APIView):
     @staticmethod
     def post(request):
         order_number = request.data.get('order_number')
-        url = 'http://sc19h2l.pythonanywhere.com/cancelbooking/'
+        url1 = 'http://sc19h2l.pythonanywhere.com/cancelbooking/'
+        url2 = 'https://sc19j2g.pythonanywhere.com/cancelbooking/'
+        url3 = 'https://sc19yz3.pythonanywhere.com/cancelbooking/'
         data = {
             'order_id': order_number,
         }
         headers = {'Content-Type': 'application/json'}
-        response = requests.post(url, json=data, headers=headers)
-        result = response.json()
+        response1 = requests.post(url1, json=data, headers=headers)
+        result1 = response1.json()
+        response2 = requests.post(url2, json=data, headers=headers)
+        result2 = response2.json()
+        response3 = requests.post(url3, json=data, headers=headers)
+        result3 = response3.json()
 
-        if result['code'] == "200":
+        print(result1)
+        print(result2)
+        print(result3)
+        if result1['code'] == "200":
+            order = Order.objects.get(order_number=order_number)
+            order.delete()
+            return Response({'code': '200', 'msg': 'success'})
+        elif result2['code'] == "200":
+            order = Order.objects.get(order_number=order_number)
+            order.delete()
+            return Response({'code': '200', 'msg': 'success'})
+        elif result3['code'] == "200":
             order = Order.objects.get(order_number=order_number)
             order.delete()
             return Response({'code': '200', 'msg': 'success'})
@@ -198,57 +248,78 @@ class FindFlight(APIView):
         departure_date = request.GET.get('departure_date')
         departure = request.GET.get('departure')
         arrival = request.GET.get('arrival')
-        url = 'http://sc19h2l.pythonanywhere.com/findflight//'
+        url1 = 'http://sc19h2l.pythonanywhere.com/findflight/'
+        url2 = 'https://sc19j2g.pythonanywhere.com/findflight'
+        url3 = 'https://sc19yz3.pythonanywhere.com/findflight/'
         params = {
             'departure_date': departure_date,
             'departure': departure,
             'arrival': arrival
         }
-        params = f'departure_date={departure_date}&departure={departure}&arrival={arrival}'
-        response = requests.get(url, params=params)
-        print(response.url)
+        params_str = f'departure_date={departure_date}&departure={departure}&arrival={arrival}'
+        response1 = requests.get(url1, params=params_str)
+        response2 = requests.get(url2, params=params_str)
+        response3 = requests.get(url3, params=params_str)
 
-        if response.status_code == 200:
-            result = response.json()
+        all_flights = []
+
+        if response1.status_code == 200:
+            result = response1.json()
             if result['code'] == '200':
-                print(result['data'])
-                if not result['data']:
-                    return Response({'code': '400', 'msg': 'Sorry! No search results found'})
-                flights = result['data']
-                flightList = []
-                for flight in flights:
-                    flightInfo = {
-                        "flight_num": flight['flight_num'],
-                        "airline": flight['airline'],
-                        "departure_date": flight['departure_date'],
-                        "departure_time": flight['departure_time'],
-                        "arrive_date": flight['arrive_date'],
-                        "arrive_time": flight['arrive_time'],
-                        "flight_price": flight['flight_price'],
-                        "seat_number": flight['seat_number'],
-                        "departure": flight['departure'],
-                        "arrival": flight['arrival']
-                    }
-                    flightList.append(flightInfo)
-                return Response({'code': '200', 'msg': 'successful', 'data': flightList})
-            else:
-                return Response({'code': '400', 'msg': result['message']})
-        else:
-            return Response({'code': '400', 'msg': 'Failed! Cannot connect to the server'})
+                all_flights += result['data']
+
+        if response2.status_code == 200:
+            result = response2.json()
+            if result['code'] == '200':
+                all_flights += result['data']
+
+        if response3.status_code == 200:
+            result = response3.json()
+            if result['code'] == '200':
+                all_flights += result['data']
+
+        if not all_flights:
+            return Response({'code': '400', 'msg': 'Sorry! No search results found'})
+
+        flightList = []
+        for flight in all_flights:
+            flightInfo = {
+                "flight_num": flight['flight_num'],
+                "airline": flight['airline'],
+                "departure_date": flight['departure_date'],
+                "departure_time": flight['departure_time'],
+                "arrive_date": flight['arrive_date'],
+                "arrive_time": flight['arrive_time'],
+                "flight_price": flight['flight_price'],
+                "seat_number": flight['seat_number'],
+                "departure": flight['departure'],
+                "arrival": flight['arrival']
+            }
+            flightList.append(flightInfo)
+
+        return Response({'code': '200', 'msg': 'successful', 'data': flightList})
 
 
 class BookFlight(APIView):
     @staticmethod
     def post(request):
         flight_num = request.data.get('flight_num')
-        passenger_name = request.data.get('passenger_name')
+        passenger_name = [request.data.get('passenger_name')]
         order_id = request.data.get('order_id')
         order_price = request.data.get('order_price')
         ticket_time = request.data.get('ticket_time')
         payment_status = request.data.get('payment_status')
+        airline = request.data.get('airline')
 
-        # Send the POST request to the /bookflight endpoint
-        url = 'http://sc19h2l.pythonanywhere.com/bookflight/'
+        if airline == 'KingAirline':
+            url = 'http://sc19h2l.pythonanywhere.com/bookflight/'
+        elif airline == 'CandyAirline':
+            url = 'https://sc19j2g.pythonanywhere.com/bookflight/'
+        elif airline == 'ElephantAL':
+            url = 'https://sc19yz3.pythonanywhere.com/bookflight/'
+        else:
+            return Response({'code': '400', 'msg': "Error in order information"})
+
         data = {
             'flight_num': flight_num,
             'passenger_name': passenger_name,
@@ -260,6 +331,8 @@ class BookFlight(APIView):
         headers = {'Content-Type': 'application/json'}
         response = requests.post(url, json=data, headers=headers)
         print(data)
+        print(response.json())
+        print(airline)
 
         # Check the response status code and format the response message accordingly
         if response.status_code == 200:
@@ -272,13 +345,26 @@ class BookFlight(APIView):
 
 class PaymentMethods(APIView):
     @staticmethod
-    def get(request):
-        url = 'http://sc19h2l.pythonanywhere.com/paymentmethods/'
+    def post(request):
+        airline = request.data.get('airline')
+        if airline == 'KingAirline':
+            url = 'http://sc19h2l.pythonanywhere.com/paymentmethods/'
+        elif airline == 'CandyAirline':
+            url = 'https://sc19j2g.pythonanywhere.com/paymentmethods'
+        elif airline == 'ElephantAL':
+            url = 'https://sc19yz3.pythonanywhere.com/paymentmethods/'
+        else:
+            return Response({'code': '400', 'msg': "Error in order information"})
+
         response = requests.get(url)
-        print(response.url)
+        print(airline)
+        print(response.json())
 
         if response.status_code == 200:
-            payment_platform = response.json().get('data', {}).get('payment_platform', [])
+            if airline == 'ElephantAL':
+                payment_platform = response.json().get('data', {}).get('platform', [])
+            else:
+                payment_platform = response.json().get('data', {}).get('payment_platform', [])
             print(payment_platform)
             return Response({'code': '200', 'msg': 'successful', 'payment_platform': payment_platform})
         else:
@@ -291,8 +377,16 @@ class PayForBooking(APIView):
     def post(request):
         payment_platform = request.data.get('payment_platform')
         order_id = request.data.get('order_id')
+        airline = request.data.get('airline')
+        if airline == 'KingAirline':
+            url = 'http://sc19h2l.pythonanywhere.com/payforbooking/'
+        elif airline == 'CandyAirline':
+            url = 'https://sc19j2g.pythonanywhere.com/payforbooking/'
+        elif airline == 'ElephantAL':
+            url = 'https://sc19yz3.pythonanywhere.com/payforbooking/'
+        else:
+            return Response({'code': '400', 'msg': "Error in order information"})
 
-        url = 'http://sc19h2l.pythonanywhere.com/payforbooking/'
         headers = {'Content-Type': 'application/json'}
         data = {'payment_platform': payment_platform, 'order_id': order_id}
         response = requests.post(url, json=data, headers=headers)
@@ -306,15 +400,70 @@ class PayForBooking(APIView):
             aid = response_data.get('AID')
             pid = response_data.get('PID')
             order_price = response_data.get('order_price')
-            return Response({
-                'code': '200',
-                'msg': 'successful',
-                'data': {'AID': aid, 'PID': pid, 'order_price': order_price, 'order_id': order_id}
-            })
+            logindata = {
+                "username": "+8613800100100",
+                "password": "abcdef"
+            }
+            login_response = requests.post('http://bamboo.pythonanywhere.com/signin/', json=logindata, headers=headers)
+            login_result = login_response.json()
+            print(login_response.url)
+            print(login_response.json())
+            print(login_result['code'])
+
+            if login_result['code'] == '200':
+                token = login_result['data']['token']
+                print(token)
+            else:
+                return Response({'code': '400', 'msg': 'Failed to connect to payment platform'})
+
+            if payment_platform == 'Payment1':
+                payurl = 'http://bamboo.pythonanywhere.com/pay/'
+            elif payment_platform == 'Payment2':
+                return Response({'code': '400', 'msg': 'Failed to connect to payment platform'})
+            else:
+                return Response({'code': '400', 'msg': 'Failed to connect to payment platform'})
+
+            data = {'orderId': order_id}
+            headers = {'Content-Type': 'application/json', 'Authorization': 'Token '+token}
+            pay_response = requests.post(payurl, json=data, headers=headers)
+            pay_result = pay_response.json()
+            print(pay_response.url)
+            print(pay_response.json())
+
+            if pay_result['code'] == '200':
+                order = Order.objects.get(order_number=order_id)
+                order.key = pay_result['data']['key']
+                print(order.key)
+                order.save()
+
+                if airline == 'KingAirline':
+                    cfurl = 'http://sc19h2l.pythonanywhere.com/finalizebooking/'
+                elif airline == 'CandyAirline':
+                    return Response({'code': '400', 'msg': "Connection to airline failed"})
+                elif airline == 'ElephantAL':
+                    cfurl = 'https://sc19yz3.pythonanywhere.com/finalizebooking/'
+                else:
+                    return Response({'code': '400', 'msg': "Connection to airline failed"})
+
+                data = {'order_id': order_id, 'key': pay_result['data']['key']}
+                cf_response = requests.post(cfurl, json=data, headers=headers)
+                cf_result = cf_response.json()
+                print(cf_result)
+                if cf_result['code'] == '200':
+                    order = Order.objects.get(order_number=order_id)
+                    order.status = '1'
+                    order.save()
+                    return Response({
+                        'code': '200', 'msg': 'successful',
+                        'data': {'AID': aid, 'PID': pid, 'order_price': order_price, 'order_id': order_id}
+                    })
+                else:
+                    return Response({'code': '400', 'msg': result['msg'], 'error': result['msg']})
+
+            else:
+                return Response({'code': '400', 'msg': 'Failed to search the order in payment platform'})
         elif result['code'] == "503":
             return Response({'code': '400', 'msg': result['msg'], 'error': result['msg']})
         else:
             error_msg = f'Error: {response.status_code} {response.reason}'
             return Response({'code': '400', 'msg': 'fail', 'error': error_msg})
-
-
